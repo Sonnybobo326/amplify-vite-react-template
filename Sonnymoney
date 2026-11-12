@@ -1,0 +1,98 @@
+@api.get("/wallet/summary")
+async def wallet_summary(
+    chain: str = "bsc",
+    address: str = "",
+    electricity: float = Query(DEFAULT_ELECTRICITY, ge=0),
+):
+    if not address:
+        raise HTTPException(400, "address is required")
+
+    wallet = await fetch_wallet_balance(chain, address)
+    prices = await fetch_coin_prices()
+    myst_price = prices.get("mysterium", {}).get("price", 0.0)
+    myst_nodes = await mystnodes(electricity)
+
+    profile_total = sum(p["profit_usd_day"] for p in myst_nodes["profiles"])
+    pending_estimate = max(0.0, profile_total * 30)
+
+    return {
+        "chain": wallet["chain"],
+        "address": wallet["address"],
+        "balance": wallet["balance"],
+        "symbol": wallet["symbol"],
+        "balance_usd": wallet["balance"] * (prices.get("binancecoin", {}).get("price", 0.0) if chain == "bsc" else 1.0),
+        "estimated_daily_rewards_usd": profile_total,
+        "estimated_monthly_rewards_usd": profile_total * 30,
+        "node_rewards_myst": round(profile_total / max(myst_price, 0.01), 4),
+        "payout_pending_usd": pending_estimate,
+        "payout_status": "scheduled" if pending_estimate > 0 else "none",
+        "wallet_tx_count": wallet["tx_count"],
+    }import { useState } from "react";
+import { api, fmtUsd, fmtNum } from "../lib/api";
+
+export default function Wallet() {
+  const [chain, setChain] = useState("bsc");
+  const [address, setAddress] = useState("");
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  const loadWallet = async () => {
+    if (!address) return;
+    setLoading(true);
+    try {
+      const response = await api.get(`/wallet/summary`, {
+        params: { chain, address },
+      });
+      setData(response.data);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="max-w-6xl mx-auto px-4 py-10">
+      <h1 className="text-3xl font-black">Wallet & earnings</h1>
+
+      <div className="mt-6 flex gap-3">
+        <select value={chain} onChange={(e) => setChain(e.target.value)}>
+          <option value="bsc">BNB Smart Chain</option>
+          <option value="eth">Ethereum</option>
+          <option value="arbitrum">Arbitrum</option>
+          <option value="base">Base</option>
+        </select>
+
+        <input
+          value={address}
+          onChange={(e) => setAddress(e.target.value)}
+          placeholder="0x..."
+          className="flex-1 border px-3 py-2"
+        />
+
+        <button onClick={loadWallet} className="bg-slate-900 text-white px-5 py-2">
+          Load wallet
+        </button>
+      </div>
+
+      {loading && <div className="mt-6">Loading…</div>}
+
+      {data && (
+        <div className="mt-8 grid md:grid-cols-3 gap-4">
+          <div className="border p-5">
+            <div className="text-xs uppercase">Balance</div>
+            <div className="font-bold text-2xl">{fmtUsd(data.balance_usd ?? 0, 2)}</div>
+          </div>
+
+          <div className="border p-5">
+            <div className="text-xs uppercase">Daily rewards</div>
+            <div className="font-bold text-2xl">{fmtUsd(data.estimated_daily_rewards_usd ?? 0, 2)}</div>
+          </div>
+
+          <div className="border p-5">
+            <div className="text-xs uppercase">Pending payout</div>
+            <div className="font-bold text-2xl">{fmtUsd(data.payout_pending_usd ?? 0, 2)}</div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
